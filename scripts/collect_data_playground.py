@@ -8,10 +8,11 @@ get_package_url = f'https://api.deps.dev/v3alpha/systems/pypi/packages/{seed_pac
 # get the default version of the seed package
 package_response = requests.get(get_package_url).json()
 default_version = next(item['versionKey']['version'] for item in package_response['versions'] if item['isDefault'] == True)
-
 get_default_version_url = f'https://api.deps.dev/v3alpha/systems/pypi/packages/{seed_package_name}/versions/{default_version}'
 version_response = requests.get(get_default_version_url).json()
 print(f'Default version of {seed_package_name} is {default_version}')
+
+# get dependencies with the version
 dependencies_url = f'https://api.deps.dev/v3alpha/systems/pypi/packages/{seed_package_name}/versions/{default_version}:dependencies'
 dependencies_response = requests.get(dependencies_url).json()
 print(f'Dependencies of {seed_package_name} version {default_version}:')
