@@ -2,7 +2,7 @@
 
 import requests
 # the 'very seed package'
-seed_package_name = 'scikit-learn'
+seed_package_name = 'scipy'
 get_package_url = f'https://api.deps.dev/v3alpha/systems/pypi/packages/{seed_package_name}'
 
 # get the default version of the seed package
