@@ -1,14 +1,21 @@
+from httpx import HTTPError
 import requests
 
 
 class FeatureGenerator:
     def __init__(self, system):
         self.system = system
-        
-    def get_security_advisory(self, package, version):
-        get_version_url = f"https://api.deps.dev/v3/systems/{self.system}/packages/{package}/versions/{version}"
-        version_response = requests.get(get_version_url).json()
-        advisory_keys = version_response['advisoryKeys']
+    
+    @staticmethod
+    def get_security_advisory(package, version, system):
+        get_version_url = f"https://api.deps.dev/v3/systems/{system}/packages/{package}/versions/{version}"
+        print(get_version_url)
+        version_response = requests.get(get_version_url)
+        if version_response.status_code != 200:
+            raise HTTPError(f"HTTP Error with status code: {version_response.status_code}")
+
+        response_body = version_response.json()
+        advisory_keys = response_body['advisoryKeys']
 
         # No advisory records
         if len(advisory_keys) == 0:

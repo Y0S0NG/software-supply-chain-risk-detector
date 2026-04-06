@@ -1,4 +1,6 @@
 from collections import deque
+from multiprocessing import Value
+from httpx import HTTPError
 import requests
 from PackageNode import PackageNode
 
@@ -19,7 +21,7 @@ class GraphGenerator:
 
         # Get the default version of the seed package if not provided
         if not seed_package_version:
-            seed_package_version = self._fetch_default_version(seed_package_name)
+            seed_package_version = self.fetch_default_version(seed_package_name, self.systems)
 
         # Get nodes and edges
         nodes, edges = self._fetch_dependencies(seed_package_name, seed_package_version)
@@ -63,16 +65,26 @@ class GraphGenerator:
     def _fetch_dependencies(self, package_name, version):
         print('[GraphGenerator] Fetching dependencies...')
         dependencies_url = f'https://api.deps.dev/v3alpha/systems/{self.systems}/packages/{package_name}/versions/{version}:dependencies'
-        dependencies_response = requests.get(dependencies_url).json()
-        nodes = dependencies_response['nodes']
-        edges = dependencies_response['edges']
+        dependencies_response = requests.get(dependencies_url)
+        if dependencies_response.status_code != 200:
+            print(dependencies_response.status_code)
+            raise HTTPError(f'Error when fetching dependencies for {package_name}; Request status code: {dependencies_response.status_code}')
+        response_body = dependencies_response.json()
+        nodes = response_body['nodes']
+        edges = response_body['edges']
         return nodes, edges
 
-    def _fetch_default_version(self, package_name):
+    @staticmethod
+    def fetch_default_version(package_name, system):
         print('[GraphGenerator] Package version is not provided, checking default version...')
-        get_package_url = f'https://api.deps.dev/v3alpha/systems/{self.systems}/packages/{package_name}'
-        package_response = requests.get(get_package_url).json()
-        seed_package_version = next(item['versionKey']['version'] for item in package_response['versions'] if item['isDefault'] == True)
+        get_package_url = f'https://api.deps.dev/v3alpha/systems/{system}/packages/{package_name}'
+        # print(f"url: {get_package_url}")
+        package_response = requests.get(get_package_url)
+        if package_response.status_code != 200:
+            print(package_response.status_code)
+            raise HTTPError(f'Error when fetching dependencies for {package_name}; Request status code: {package_response.status_code}')
+        response_body = package_response.json()
+        seed_package_version = next(item['versionKey']['version'] for item in response_body['versions'] if item['isDefault'] == True)
         return seed_package_version
     
     def _bfs_graph_construction(self, queue):
@@ -126,7 +138,7 @@ class GraphGenerator:
             self.levels.append([package.package_id for package in level_list])
             print(f'Level: {self.bfs_depth}')
             print(self.levels)
-            
+
 
 
 
