@@ -1,8 +1,12 @@
 from collections import deque
-from multiprocessing import Value
 from httpx import HTTPError
 import requests
-from PackageNode import PackageNode
+
+class PackageNode:
+    def __init__(self, package):
+        self.package_id = package
+        self.features = None
+        self.depends_on = set()
 
 class GraphGenerator:
     '''

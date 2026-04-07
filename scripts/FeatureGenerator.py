@@ -9,7 +9,7 @@ class FeatureGenerator:
     @staticmethod
     def get_security_advisory(package, version, system):
         get_version_url = f"https://api.deps.dev/v3/systems/{system}/packages/{package}/versions/{version}"
-        print(get_version_url)
+        # print(get_version_url)
         version_response = requests.get(get_version_url)
         if version_response.status_code != 200:
             raise HTTPError(f"HTTP Error with status code: {version_response.status_code}")
@@ -42,8 +42,6 @@ class FeatureGenerator:
         structural_metadata = self.get_structural_metadata(package_node, nodes_map)
 
         package_feature_order = [
-            "package_name",
-            "package_version",
             "num_authors",
             "num_maintainers",
             "has_license",
@@ -51,7 +49,6 @@ class FeatureGenerator:
             "has_project_url",
             "has_package_url",
             "has_release_url",
-            "python_requirement",
             "has_organization",
             "num_roles",
             "num_distributions",
@@ -67,7 +64,7 @@ class FeatureGenerator:
 
 
     def get_package_metadata(self, package, version):
-        metadata_map = {"package_name": package, "package_version": version}
+        metadata_map = {}
         features = [
             'num_authors',
             'num_maintainers',
@@ -76,7 +73,7 @@ class FeatureGenerator:
             'has_project_url',
             'has_package_url',
             'has_release_url',
-            'python_requirement',
+            # 'python_requirement',
             # 'description',
             'has_organization',
             'num_roles',
@@ -103,12 +100,12 @@ class FeatureGenerator:
             has_package_url = bool(info.get("package_url"))
             has_release_url = bool(info.get("release_url"))
             # -------------------------------------------- #
-            python_requirement = info['requires_python'] or "" # Don't know how to process
+            # python_requirement = info['requires_python'] or ""
             # description = info['description'] or "" # Do not know how to vectorize, NLP? will that help with vulnerability detection?
             
             # parse ownership
             ownership = metadata_response['ownership']
-            has_organization = (ownership['organization'] != None)
+            has_organization = bool(ownership['organization'])
             num_roles = len(ownership['roles'])
 
             # parse urls
