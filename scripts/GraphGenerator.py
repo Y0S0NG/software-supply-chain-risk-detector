@@ -1,12 +1,13 @@
 from collections import deque
 from httpx import HTTPError
 import requests
+from .PackageNode import PackageNode
 
-class PackageNode:
-    def __init__(self, package):
-        self.package_id = package
-        self.features = None
-        self.depends_on = set()
+# class PackageNode:
+#     def __init__(self, package):
+#         self.package_id = package
+#         self.features = None
+#         self.depends_on = set()
 
 class GraphGenerator:
     '''
@@ -28,7 +29,7 @@ class GraphGenerator:
             seed_package_version = self.fetch_default_version(seed_package_name, self.systems)
 
         # Get nodes and edges
-        nodes, edges = self._fetch_dependencies(seed_package_name, seed_package_version)
+        nodes, edges = self.fetch_dependencies(seed_package_name, seed_package_version)
         
         # map package name + version to a node id
         # construct the node map
@@ -66,7 +67,7 @@ class GraphGenerator:
 
 
 
-    def _fetch_dependencies(self, package_name, version):
+    def fetch_dependencies(self, package_name, version):
         print('[GraphGenerator] Fetching dependencies...')
         dependencies_url = f'https://api.deps.dev/v3alpha/systems/{self.systems}/packages/{package_name}/versions/{version}:dependencies'
         dependencies_response = requests.get(dependencies_url)
@@ -105,7 +106,7 @@ class GraphGenerator:
                 cur_package_id = cur_package.package_id
                 cur_package_name, cur_package_version = cur_package_id.split("@", 1)
 
-                cur_dependencies_nodes, cur_dependencies_edges = self._fetch_dependencies(cur_package_name, cur_package_version)
+                cur_dependencies_nodes, cur_dependencies_edges = self.fetch_dependencies(cur_package_name, cur_package_version)
 
                 nodes_list = []
                 for node in cur_dependencies_nodes:
