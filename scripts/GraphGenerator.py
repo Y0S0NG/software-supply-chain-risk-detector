@@ -1,3 +1,4 @@
+import random
 from collections import deque
 from httpx import HTTPError
 import requests
@@ -24,9 +25,9 @@ class GraphGenerator:
         
         print('[GraphGenerator] Initializing 1st layer of the graph...')
 
-        # Get the default version of the seed package if not provided
+        # Select a random version of the seed package if not provided
         if not seed_package_version:
-            seed_package_version = self.fetch_default_version(seed_package_name, self.systems)
+            seed_package_version = self.fetch_random_version(seed_package_name, self.systems)
 
         # Get nodes and edges
         nodes, edges = self.fetch_dependencies(seed_package_name, seed_package_version)
@@ -66,7 +67,6 @@ class GraphGenerator:
         self._bfs_graph_construction(node_list[1:])
 
 
-
     def fetch_dependencies(self, package_name, version):
         print('[GraphGenerator] Fetching dependencies...')
         dependencies_url = f'https://api.deps.dev/v3alpha/systems/{self.systems}/packages/{package_name}/versions/{version}:dependencies'
@@ -80,17 +80,16 @@ class GraphGenerator:
         return nodes, edges
 
     @staticmethod
-    def fetch_default_version(package_name, system):
-        print('[GraphGenerator] Package version is not provided, checking default version...')
+    def fetch_random_version(package_name, system):
+        print('[GraphGenerator] Package version is not provided, selecting a random version...')
         get_package_url = f'https://api.deps.dev/v3alpha/systems/{system}/packages/{package_name}'
-        # print(f"url: {get_package_url}")
         package_response = requests.get(get_package_url)
         if package_response.status_code != 200:
             print(package_response.status_code)
             raise HTTPError(f'Error when fetching dependencies for {package_name}; Request status code: {package_response.status_code}')
         response_body = package_response.json()
-        seed_package_version = next(item['versionKey']['version'] for item in response_body['versions'] if item['isDefault'] == True)
-        return seed_package_version
+        versions = [item['versionKey']['version'] for item in response_body['versions']]
+        return random.choice(versions)
     
     def _bfs_graph_construction(self, queue):
         q = deque(queue)
