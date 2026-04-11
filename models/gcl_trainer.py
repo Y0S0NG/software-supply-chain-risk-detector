@@ -2,8 +2,11 @@
 Graph Contrastive Learning (GCL) trainer.
 
 Implements:
-  - Four random graph augmentations:
-      edge_dropout, feature_masking, leaf_node_removal, feature_noise
+  - Composed graph augmentations with controlled strength:
+      edge_dropout, feature_masking, feature_noise, subgraph_sampling
+  - Two structurally distinct but complementary augmentation views:
+      view1 = edge_dropout + feature_masking
+      view2 = subgraph_sampling + feature_noise
   - InfoNCE (NT-Xent) contrastive loss
   - GCLTrainer: wraps the GCLModel and drives the training loop
 """
@@ -35,47 +38,60 @@ def aug_feature_masking(data: Data, mask_rate: float = 0.2) -> Data:
     return Data(x=data.x * mask, edge_index=data.edge_index)
 
 
-def aug_leaf_removal(data: Data) -> Data:
-    """
-    Remove leaf nodes (out-degree == 0) from the graph.
-    The root (index 0) is always preserved.
-    """
-    num_nodes = data.x.shape[0]
-    ei = data.edge_index
-
-    if ei.shape[1] == 0 or num_nodes <= 1:
-        return data
-
-    has_out = torch.zeros(num_nodes, dtype=torch.bool)
-    has_out[ei[0]] = True
-    has_out[0] = True  # root must survive
-
-    if has_out.all():
-        return data
-
-    keep_idx = has_out.nonzero(as_tuple=True)[0]
-    remap = torch.full((num_nodes,), -1, dtype=torch.long)
-    remap[keep_idx] = torch.arange(keep_idx.shape[0])
-
-    both_kept = has_out[ei[0]] & has_out[ei[1]]
-    new_ei = remap[ei[:, both_kept]]
-
-    return Data(x=data.x[keep_idx], edge_index=new_ei)
-
-
 def aug_feature_noise(data: Data, noise_std: float = 0.05) -> Data:
     """Add small zero-mean Gaussian noise to all node features."""
     noisy_x = data.x + torch.randn_like(data.x) * noise_std
     return Data(x=noisy_x, edge_index=data.edge_index)
 
 
-_AUGMENTATIONS = [aug_edge_dropout, aug_feature_masking, aug_leaf_removal, aug_feature_noise]
+def aug_subgraph(data: Data, keep_ratio: float = 0.8) -> Data:
+    """
+    Randomly sample a subgraph by keeping each node with probability `keep_ratio`.
+    The root (index 0) is always preserved.
+    """
+    num_nodes = data.x.shape[0]
+    if num_nodes <= 1:
+        return data
+
+    keep = torch.rand(num_nodes) < keep_ratio
+    keep[0] = True  # always keep root
+
+    keep_idx = keep.nonzero(as_tuple=True)[0]
+    remap = torch.full((num_nodes,), -1, dtype=torch.long)
+    remap[keep_idx] = torch.arange(len(keep_idx))
+
+    ei = data.edge_index
+    if ei.shape[1] > 0:
+        mask = keep[ei[0]] & keep[ei[1]]
+        new_ei = remap[ei[:, mask]]
+    else:
+        new_ei = ei
+
+    return Data(x=data.x[keep_idx], edge_index=new_ei)
 
 
-def random_augment(data: Data) -> Data:
-    """Apply one randomly chosen augmentation."""
-    return random.choice(_AUGMENTATIONS)(data)
+def augment_view1(data: Data) -> Data:
+    """
+    View 1: structural perturbation + feature masking.
+    Stochastically applies edge dropout and/or feature masking.
+    """
+    if random.random() < 0.8:
+        data = aug_edge_dropout(data, drop_rate=0.2)
+    if random.random() < 0.8:
+        data = aug_feature_masking(data, mask_rate=0.2)
+    return data
 
+
+def augment_view2(data: Data) -> Data:
+    """
+    View 2: topology sampling + feature noise.
+    Stochastically applies subgraph sampling and/or feature noise.
+    """
+    if random.random() < 0.8:
+        data = aug_subgraph(data, keep_ratio=0.8)
+    if random.random() < 0.5:
+        data = aug_feature_noise(data, noise_std=0.05)
+    return data
 
 # ── InfoNCE loss ─────────────────────────────────────────────────────────────
 
@@ -165,9 +181,12 @@ class GCLTrainer:
         z2_list: List[torch.Tensor] = []
 
         for data, root_idx in graph_batch:
-            # Two independent augmented views of the same graph
-            view1 = random_augment(data).to(self.device)
-            view2 = random_augment(data).to(self.device)
+            # Skip degenerate graphs (empty or 1-D x tensors from cache)
+            if data.x.dim() != 2 or data.x.shape[0] == 0:
+                continue
+            # Two structurally distinct augmented views of the same graph
+            view1 = augment_view1(data).to(self.device)
+            view2 = augment_view2(data).to(self.device)
 
             # Root is always at index 0 (guaranteed by build_pyg_data and aug_leaf_removal)
             z1 = self.model.forward_gcl(view1.x, view1.edge_index, root_idx=0)
@@ -175,6 +194,9 @@ class GCLTrainer:
 
             z1_list.append(z1)
             z2_list.append(z2)
+
+        if len(z1_list) < 2:
+            return float('nan')  # batch shrank below InfoNCE minimum after filtering
 
         z1_batch = torch.stack(z1_list)  # (N, proj_out_dim)
         z2_batch = torch.stack(z2_list)

@@ -49,7 +49,11 @@ def build_pyg_data(
     for nid in node_ids:
         feat = features_dict.get(nid)
         x_rows.append(feat if feat else [0.0] * feat_dim)
-    x = torch.tensor(x_rows, dtype=torch.float)
+    # Use explicit shape to avoid torch.tensor([]) producing a 1-D tensor
+    if x_rows:
+        x = torch.tensor(x_rows, dtype=torch.float)
+    else:
+        x = torch.zeros((0, feat_dim), dtype=torch.float)
 
     # Build edge index from depends_on relationships
     src_list: List[int] = []

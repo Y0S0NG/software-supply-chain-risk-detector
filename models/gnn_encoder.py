@@ -11,30 +11,38 @@ class GraphSAGEEncoder(nn.Module):
         super().__init__()
         self.num_layers = num_layers
         self.convs = nn.ModuleList()
+        self.bns   = nn.ModuleList()   # BatchNorm after each non-final layer
 
         if num_layers == 1:
             self.convs.append(SAGEConv(in_channels, out_channels))
         else:
             self.convs.append(SAGEConv(in_channels, hidden_channels))
+            self.bns.append(nn.LayerNorm(hidden_channels))
             for _ in range(num_layers - 2):
                 self.convs.append(SAGEConv(hidden_channels, hidden_channels))
+                self.bns.append(nn.LayerNorm(hidden_channels))
             self.convs.append(SAGEConv(hidden_channels, out_channels))
 
     def forward(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
         for i, conv in enumerate(self.convs):
             x = conv(x, edge_index)
             if i < self.num_layers - 1:
+                x = self.bns[i](x)
                 x = F.relu(x)
         return x
 
 
 class ProjectionHead(nn.Module):
-    """Small MLP projection head used during GCL training only."""
+    """
+    SimCLR-style MLP projection head used during GCL training only.
+    BatchNorm after the hidden layer prevents representational collapse.
+    """
 
     def __init__(self, in_dim: int, hidden_dim: int, out_dim: int):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(in_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, out_dim),
         )
