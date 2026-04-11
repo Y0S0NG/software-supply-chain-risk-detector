@@ -1,12 +1,64 @@
+import csv
+import os
 from collections import deque
 from datetime import datetime, timezone
 from httpx import HTTPError
 import requests
 
+# Ordered list of all package-level feature names (must match get_package_metadata return keys)
+PACKAGE_FEATURE_NAMES = [
+    'num_authors', 'num_maintainers', 'num_roles', 'has_organization',
+    'has_license', 'yanked', 'has_sdist', 'has_sig',
+    'num_dependencies', 'has_requires_python',
+    'num_releases', 'days_since_first_release', 'days_since_last_release', 'dev_status_level',
+    'description_length', 'num_classifiers', 'num_project_urls', 'has_homepage',
+    'num_wheel_dists', 'total_dist_size_kb',
+]
+_CACHE_COLUMNS = ['package', 'version'] + PACKAGE_FEATURE_NAMES
+
+
+def _coerce(value):
+    """Convert CSV string back to int or float where possible."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        pass
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        pass
+    return value
+
 
 class FeatureGenerator:
-    def __init__(self, system):
+    def __init__(self, system, cache_path=None):
         self.system = system
+        self._cache_path = cache_path
+        self._cache: dict[str, dict] = {}   # key: "pkg@version"
+
+        if cache_path and os.path.exists(cache_path):
+            with open(cache_path, newline='') as f:
+                for row in csv.DictReader(f):
+                    key = f"{row['package']}@{row['version']}"
+                    self._cache[key] = {
+                        col: _coerce(row[col])
+                        for col in PACKAGE_FEATURE_NAMES
+                        if col in row
+                    }
+            print(f'[FeatureGenerator] Loaded {len(self._cache)} cached entries from {cache_path}')
+
+    def _write_cache_row(self, package, version, metadata):
+        """Append one row to the cache CSV immediately after a fresh API fetch."""
+        if not self._cache_path:
+            return
+        write_header = not os.path.exists(self._cache_path)
+        with open(self._cache_path, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=_CACHE_COLUMNS)
+            if write_header:
+                writer.writeheader()
+            row = {'package': package, 'version': version}
+            row.update({col: metadata.get(col, '') for col in PACKAGE_FEATURE_NAMES})
+            writer.writerow(row)
 
     @staticmethod
     def get_security_advisory(package, version, system):
@@ -86,6 +138,11 @@ class FeatureGenerator:
     def get_package_metadata(self, package, version):
         if self.system != 'pypi':
             return {}
+
+        # --- Cache hit ---
+        cache_key = f'{package}@{version}'
+        if cache_key in self._cache:
+            return self._cache[cache_key]
 
         # --- Version-specific endpoint: info, urls, ownership ---
         ver_url = f"https://pypi.org/pypi/{package}/{version}/json"
@@ -187,7 +244,7 @@ class FeatureGenerator:
         num_wheel_dists = sum(1 for d in urls if d.get('packagetype') == 'bdist_wheel')
         total_dist_size_kb = sum(d.get('size', 0) for d in urls) // 1024
 
-        return {
+        metadata = {
             # Ownership / identity
             "num_authors": num_authors,
             "num_maintainers": num_maintainers,
@@ -215,6 +272,11 @@ class FeatureGenerator:
             "num_wheel_dists": num_wheel_dists,
             "total_dist_size_kb": total_dist_size_kb,
         }
+
+        # --- Persist to cache ---
+        self._cache[cache_key] = metadata
+        self._write_cache_row(package, version, metadata)
+        return metadata
 
     def get_structural_metadata(self, node, nodes_map):
         # for independent package
